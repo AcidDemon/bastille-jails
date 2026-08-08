@@ -1,0 +1,4 @@
+# Element Call is WebRTC: STUN/TURN to negotiate, then media on a high UDP range.
+# Text, rooms, files and encryption need none of this, only the standard 443.
+pass in quick on $jail_if proto udp from $j_element to any port { 3478, 5349 } keep state
+pass in quick on $jail_if proto udp from $j_element to any port 50000:65535 keep state

@@ -89,6 +89,13 @@ CMD apt-get install -y --no-install-recommends libegl1 libgl1 libgles2
 CMD apt-get install -y --no-install-recommends libgtk-3-0t64 libatspi2.0-0t64 libayatana-appindicator3-1 libasound2t64 libnotify4 libnss3 libxss1 libxtst6 libuuid1 libsecret-1-0 xdg-utils fonts-dejavu-core fonts-noto-color-emoji
 
 # dbus refuses to start without a machine-id
+# jexec -l carries the host login class, which sets lang=en_US.UTF-8, but
+# debootstrap generates only C.utf8, so perl and friends warn on every run.
+CMD DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends locales
+CMD sed -i -E 's/^#[[:space:]]*(en_US\.UTF-8 UTF-8)/\1/' /etc/locale.gen
+CMD locale-gen
+CMD printf 'LANG=en_US.UTF-8\n' > /etc/default/locale
+
 CMD dbus-uuidgen > /etc/machine-id || true
 
 # uid must match the host: nullfs passes uids through unmapped, so a mismatch

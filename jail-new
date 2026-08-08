@@ -136,6 +136,10 @@ echo "    $NAME <- $BASELINE ($FLAVOR), $IP on $BRIDGE, devfs $RULESET"
 
 # ---------------------------------------------------------------- 2. clone
 say "2/8  clone"
+if [ "$FLAVOR" = linux ]; then
+	echo "    clone will complain about a missing /etc/rc.conf; a Debian jail has"
+	echo "    none, and step 3 replaces jail.conf wholesale for that reason"
+fi
 if [ -d "$JAILDIR" ]; then
 	skip
 else
