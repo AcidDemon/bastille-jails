@@ -69,17 +69,23 @@ stays the source of truth.
 
 Two files per app, and the split is a security boundary, not a style choice.
 
-    ~/bin/<app>                    one line, unprivileged, owned by acid
+    ~/bin/<app>-jail               one line, unprivileged, owned by acid
     /usr/local/sbin/<app>-jail     the real launcher, root-owned 0755
 
 The doas rule points at the second one only:
 
     permit nopass acid as root cmd /usr/local/sbin/<app>-jail
 
-**Run the wrappers bare: `spotify`, not `doas spotify`.** The wrapper already calls
-doas itself. `doas spotify` asks doas to run a command named "spotify", which no
-rule names, and fails with `doas: Operation not permitted`. That message means
-the invocation was wrong, not that anything is broken.
+Both halves carry the `-jail` suffix so it is always obvious which one starts.
+`~/bin/zen` is kept as well, because `/usr/local/bin/zen` exists and `~/bin`
+comes first on PATH: dropping it would quietly hand the short name to the
+unjailed browser.
+
+**Run the wrapper directly: `spotify-jail`, not `doas spotify-jail`.** It already
+calls doas itself. `doas spotify-jail` asks doas to run a command named
+"spotify-jail", which no rule names, and fails with
+`doas: Operation not permitted`. That message means the invocation was wrong,
+not that anything is broken.
 
 Never add a doas rule for the `~/bin` wrapper to make `doas <app>` work. Those
 files are writable by acid, so a rule running one as root turns a one-line edit

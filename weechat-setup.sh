@@ -59,10 +59,10 @@ install -o root -g wheel -m 0755 "$SRCDIR/weechat-jail" /usr/local/sbin/weechat-
 echo "    /usr/local/sbin/weechat-jail"
 
 say "4/4  ~/bin wrapper"
-printf '#!/bin/sh\nexec doas /usr/local/sbin/weechat-jail "$@"\n' > "/home/$JUSER/bin/weechat"
-chown "$JUID:$JUID" "/home/$JUSER/bin/weechat"
-chmod 0755 "/home/$JUSER/bin/weechat"
-echo "    /home/$JUSER/bin/weechat"
+printf '#!/bin/sh\nexec doas /usr/local/sbin/weechat-jail "$@"\n' > "/home/$JUSER/bin/weechat-jail"
+chown "$JUID:$JUID" "/home/$JUSER/bin/weechat-jail"
+chmod 0755 "/home/$JUSER/bin/weechat-jail"
+echo "    /home/$JUSER/bin/weechat-jail"
 
 cat <<'DONE'
 
@@ -72,7 +72,7 @@ Add this line to /usr/local/etc/doas.conf:
 
     permit nopass acid as root cmd /usr/local/sbin/weechat-jail
 
-Then run it bare from a host tmux pane:  weechat
+Then run it from a host tmux pane:  weechat-jail
 
 sec.conf is encrypted, so the first start needs:
 

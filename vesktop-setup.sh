@@ -65,7 +65,7 @@ echo "    patched module predates the boot, loaded copy is patched"
 # ------------------------------------------------------------------ 1. install
 # update-alternatives makes /usr/bin/vesktop a symlink to
 # /etc/alternatives/vesktop, an absolute path that only resolves inside the
-# jail. A host-side [ -x "$ROOT/usr/bin/vesktop" ] follows it to the host's own
+# jail. A host-side [ -x "$ROOT/usr/bin/vesktop-jail" ] follows it to the host's own
 # /etc/alternatives, finds nothing, and reports a successful install as failed.
 have_vesktop() {
 	bastille cmd "$JAIL" test -x /usr/bin/vesktop >/dev/null 2>&1
@@ -184,7 +184,7 @@ fi
 cat > "$APPS/vesktop-jail.desktop" <<'EOF'
 [Desktop Entry]
 Type=Application
-Name=Vesktop
+Name=Vesktop (jailed)
 Comment=Discord client, jailed
 Exec=doas /usr/local/sbin/vesktop-jail
 Icon=vesktop
@@ -197,10 +197,10 @@ echo "    $APPS/vesktop-jail.desktop"
 
 # ------------------------------------------------------------------ 5. wrapper
 say "5/5  ~/bin wrapper"
-printf '#!/bin/sh\nexec doas /usr/local/sbin/vesktop-jail "$@"\n' > "/home/$JUSER/bin/vesktop"
-chown "$JUID:$JUID" "/home/$JUSER/bin/vesktop"
-chmod 0755 "/home/$JUSER/bin/vesktop"
-echo "    /home/$JUSER/bin/vesktop"
+printf '#!/bin/sh\nexec doas /usr/local/sbin/vesktop-jail "$@"\n' > "/home/$JUSER/bin/vesktop-jail"
+chown "$JUID:$JUID" "/home/$JUSER/bin/vesktop-jail"
+chmod 0755 "/home/$JUSER/bin/vesktop-jail"
+echo "    /home/$JUSER/bin/vesktop-jail"
 
 cat <<'DONE'
 
@@ -210,7 +210,7 @@ Add this line to /usr/local/etc/doas.conf:
 
     permit nopass acid as root cmd /usr/local/sbin/vesktop-jail
 
-Then launch with:  vesktop
+Then launch with:  vesktop-jail
 
 Two things worth knowing:
 

@@ -14,7 +14,7 @@
 #
 # Does NOT touch /usr/local/etc/doas.conf. That edit is printed at the end and
 # has to happen in the same sitting: while the launcher lives in sbin and the
-# rule still names bin, `spotify` is denied.
+# rule still names bin, `spotify-jail` is denied.
 
 set -eu
 
@@ -51,10 +51,10 @@ fi
 
 # --------------------------------------------------------------- 2. wrapper
 say "2/4  ~/bin wrappers"
-printf '#!/bin/sh\nexec doas %s "$@"\n' "$NEW" > "$HOME_DIR/bin/spotify"
-chown "$JUID:$JUID" "$HOME_DIR/bin/spotify"
-chmod 0755 "$HOME_DIR/bin/spotify"
-echo "    ~/bin/spotify -> $NEW"
+printf '#!/bin/sh\nexec doas %s "$@"\n' "$NEW" > "$HOME_DIR/bin/spotify-jail"
+chown "$JUID:$JUID" "$HOME_DIR/bin/spotify-jail"
+chmod 0755 "$HOME_DIR/bin/spotify-jail"
+echo "    ~/bin/spotify-jail -> $NEW"
 
 # ~/bin/zen-jail is a copy of /usr/local/sbin/zen-jail. edits to it do nothing,
 # the same trap as the ~/bin/niri-session copy.
@@ -92,7 +92,7 @@ else
 	cat > "$APPS/spotify-jail.desktop" <<EOF
 [Desktop Entry]
 Type=Application
-Name=Spotify
+Name=Spotify (jailed)
 Comment=Music client, jailed
 Exec=doas $NEW
 Icon=spotify-client
@@ -141,19 +141,19 @@ bin path lingers as a dead rule):
     -permit nopass acid as root cmd /usr/local/bin/spotify-jail
     +permit nopass acid as root cmd $NEW
 
-Until that edit lands, \`spotify\` is denied: the launcher has moved and the
+Until that edit lands, \`spotify-jail\` is denied: the launcher has moved and the
 rule still names the old path.
 
 Check it with, which parses the config and executes nothing:
 
     doas -C /usr/local/etc/doas.conf $NEW
 
-Then launch with:  spotify
+Then launch with:  spotify-jail
 
 Note on invocation: the ~/bin wrappers already call doas themselves, so run
-them bare. \`doas spotify\` asks doas to run "spotify", which no rule names,
+them directly. \`doas spotify-jail\` asks doas to run "spotify-jail", which no rule names,
 and fails with "Operation not permitted". Do not add a rule for the wrapper to
-make that work -- ~/bin/spotify is writable by acid, so a rule running it as
+make that work -- ~/bin/spotify-jail is writable by acid, so a rule running it as
 root would be a privilege escalation. The wrapper stays unprivileged and the
 rule keeps pointing at the root-owned -jail script.
 DONE
