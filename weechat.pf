@@ -1,0 +1,2 @@
+# 6667 is plaintext.
+pass in quick on $priv_if proto tcp from $j_weechat to any port { 443, 6667, 6697, 7000 } keep state

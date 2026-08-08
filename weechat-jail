@@ -1,0 +1,13 @@
+#!/bin/sh
+# weechat in its jail. run as root: doas weechat-jail
+set -eu
+
+JAIL=weechat
+
+jls -j "$JAIL" jid >/dev/null 2>&1 || bastille start "$JAIL" >/dev/null
+
+# jexec -l sets PATH=/bin:/usr/bin and drops LANG.
+exec jexec -l -u acid "$JAIL" env \
+	LANG=en_US.UTF-8 \
+	WEECHAT_HOME=/home/acid/.weechat \
+	/usr/local/bin/weechat "$@"

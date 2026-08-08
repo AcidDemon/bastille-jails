@@ -1,0 +1,72 @@
+#!/bin/sh
+# spotify in its jail. run as root: doas spotify-jail
+set -eu
+
+JAIL=spotify
+RT=/tmp/xdg-acid
+SRC=$RT/$JAIL
+ROOT=/usr/local/bastille/jails/$JAIL/root
+DST=$ROOT/tmp/xdg-jail
+COOKIE=$ROOT/home/acid/.config/pulse/cookie
+BUS=$SRC/bus
+PIDF=$SRC/proxy.pid
+
+[ -d "$RT" ] || { echo "no $RT -- log into niri first" >&2; exit 1; }
+
+WL=$(cd "$RT" && ls -1 wayland-[0-9] 2>/dev/null | head -1)
+[ -n "$WL" ] || { echo "no wayland socket in $RT" >&2; exit 1; }
+
+# only the sockets spotify needs. the old setup mounted all of /tmp, which
+# included the keyring socket and everything else under there
+mkdir -p "$SRC/pulse"
+chown -R 1001:1001 "$SRC"
+ln -f "$RT/$WL" "$SRC/wayland-0"
+ln -f "$RT/pulse/native" "$SRC/pulse/native"
+
+if ! cmp -s /home/acid/.config/pulse/cookie "$COOKIE"; then
+	mkdir -p "${COOKIE%/*}"
+	cp /home/acid/.config/pulse/cookie "$COOKIE"
+	chown 1001:1001 "$COOKIE"
+fi
+
+# filtered bus. --filter denies by default; spotify may own its MPRIS name so
+# playerctl and the waybar module still see it, and talk to notifications.
+# org.freedesktop.secrets is NOT reachable through this.
+HOSTBUS=""
+for s in /tmp/dbus-*; do
+	[ -S "$s" ] && HOSTBUS="unix:path=$s"
+done
+[ -n "$HOSTBUS" ] || { echo "no session bus socket in /tmp" >&2; exit 1; }
+
+if [ -f "$PIDF" ] && kill -0 "$(cat "$PIDF")" 2>/dev/null; then
+	:                                   # proxy already running for this session
+else
+	rm -f "$BUS"
+	su -m acid -c "xdg-dbus-proxy '$HOSTBUS' '$BUS' --filter \
+		--own=org.mpris.MediaPlayer2.spotify \
+		--own=org.mpris.MediaPlayer2.spotify.* \
+		--talk=org.freedesktop.Notifications" &
+	echo $! > "$PIDF"
+	# wait for the socket. the sleep matters: without it the loop spins 50
+	# times in microseconds and waits for nothing, and this only worked
+	# because mount_nullfs and jexec are slower than the proxy starting.
+	i=0
+	while [ ! -S "$BUS" ] && [ "$i" -lt 50 ]; do i=$((i+1)); sleep 0.1; done
+	[ -S "$BUS" ] || { echo "dbus proxy did not come up" >&2; exit 1; }
+	chown 1001:1001 "$BUS" 2>/dev/null || true
+fi
+
+mkdir -p "$DST"
+mount | grep -q " on $DST " || mount_nullfs "$SRC" "$DST"
+
+# -u not -U: jexec resolves -U with FreeBSD getpwnam, which wants /etc/pwd.db.
+# a debian jail only has plain /etc/passwd. host acid is uid 1001 and so is the
+# jail's, so resolving on the host lands on the right uid either way.
+# --in-process-gpu: chromium's out-of-process GPU child aborts under
+# linuxulator's ioctl translation and reports "GPU process isn't usable".
+exec jexec -l -u acid "$JAIL" env \
+	XDG_RUNTIME_DIR=/tmp/xdg-jail \
+	WAYLAND_DISPLAY=wayland-0 \
+	PULSE_SERVER=unix:/tmp/xdg-jail/pulse/native \
+	DBUS_SESSION_BUS_ADDRESS=unix:path=/tmp/xdg-jail/bus \
+	/usr/bin/spotify --no-sandbox --ozone-platform=wayland --in-process-gpu "$@"

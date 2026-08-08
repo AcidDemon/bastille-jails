@@ -1,0 +1,8 @@
+# Extra pf rules for the vesktop jail, spliced in by jail-new -x after the
+# standard tcp 80/443 + udp 443 pair.
+#
+# Discord voice is WebRTC: STUN/TURN on 3478 and 5349 for signalling, then media
+# on a high UDP range. This is a real widening of the default-deny jail egress
+# policy and applies only to $j_vesktop. Text chat needs none of it.
+pass in quick on $jail_if proto udp from $j_vesktop to any port { 3478, 5349 } keep state
+pass in quick on $jail_if proto udp from $j_vesktop to any port 50000:65535 keep state

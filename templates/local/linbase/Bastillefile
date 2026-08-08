@@ -1,0 +1,108 @@
+# Debian GUI jail baseline -> the golden jail `linbase`, which jail-new
+# clones. Not meant to be applied to app jails directly.
+#
+#   bastille template linbase local/linbase --arg UID=1001 --arg USER=acid
+#
+# No MOUNT lines. `bastille create -L` already appends all five to the jail's
+# fstab (create.sh:415-420) and `bastille mount` skips duplicate mountpoints, so
+# they were always no-ops. `MOUNT devfs root/dev` also resolved to
+# <root>/root/dev, a path typo inherited from bastille's own default/linux.
+# devfs_ruleset has to be set on the fstab line instead; baseline-setup.sh
+# does that, because a fstab devfs line without ruleset= makes the jail
+# parameter completely inert.
+#
+# Deliberately does NOT include default/linux: it nullfs-mounts the host /tmp
+# and /home into the jail, which hands over the session dbus and keyring
+# sockets.
+
+ARG UID=1001
+ARG USER=acid
+
+# trixie's package list overflows the 24MB default and apt cannot read its own
+# lists. bastille only bumps this for suites up to bookworm.
+CMD mkdir -p /etc/apt/apt.conf.d
+CMD echo "APT::Cache-Start 536870912;" > /etc/apt/apt.conf.d/00aptitude
+
+# No init here, so invoke-rc.d must decline. 101 is the documented exit code
+# for that. Has to exist before the first apt-get install.
+CMD printf '#!/bin/sh\nexit 101\n' > /usr/sbin/policy-rc.d
+CMD chmod 0755 /usr/sbin/policy-rc.d
+
+# sysusers cannot lock /etc/.pwd.lock under linuxulator; tmpfiles checks statfs
+# f_type against Linux PROC_SUPER_MAGIC, so a mounted linprocfs reads as absent
+# and it fails. Both take working postinst scripts down with them.
+#
+# dpkg-divert rather than mv: a diversion survives package upgrades, so a later
+# `apt install systemd` cannot quietly restore the real binaries. --add is
+# idempotent.
+CMD dpkg-divert --local --rename --divert /usr/bin/systemd-tmpfiles.real --add /usr/bin/systemd-tmpfiles
+CMD dpkg-divert --local --rename --divert /usr/bin/systemd-sysusers.real --add /usr/bin/systemd-sysusers
+
+CMD printf '#!/bin/sh\n/usr/bin/systemd-tmpfiles.real "$@" || true\nexit 0\n' > /usr/bin/systemd-tmpfiles
+CMD chmod 0755 /usr/bin/systemd-tmpfiles
+
+# sysusers-sh does the same job by plain append, which needs no lock. It lives
+# in the jail rather than on the host so every later apt install in every clone
+# self-heals instead of leaving half-configured packages behind.
+CP sysusers-sh /usr/bin/systemd-sysusers
+CMD chmod 0755 /usr/bin/systemd-sysusers
+CMD /usr/bin/systemd-sysusers
+
+# systemd and systemd-sysv are in debootstrap's base set, so the second stage
+# already ran their postinst and already failed. Repair now that the two helpers
+# cannot fail any more, before anything else calls apt. Tolerated rather than
+# fatal: the audit at the end is what decides, and baseline-setup.sh fails
+# the build on a non-empty one.
+CMD dpkg --configure -a || true
+
+# DNS hands out AAAA but this bridge has no IPv6 route. curl falls back to v4
+# on its own; chromium does not, and renders it as "no internet".
+CMD printf 'precedence ::ffff:0:0/96 100\n' > /etc/gai.conf
+
+CMD apt-get update -qq
+
+# debootstrap ships no trust store, so every https:// fails without this.
+CMD apt-get install -y --no-install-recommends ca-certificates dbus-bin
+
+# libpulse client only; the daemon stays on the host and is reached by socket.
+# pulseaudio-utils is how the audio path gets tested without a GUI.
+CMD apt-get install -y --no-install-recommends libpulse0 pulseaudio-utils
+
+# Mesa drivers. radeonsi and the swrast fallbacks all live here.
+CMD apt-get install -y --no-install-recommends libgl1-mesa-dri libglx-mesa0 libegl-mesa0 libgbm1
+
+# libglvnd dispatch. The -mesa0 packages above are only the drivers behind it:
+# libegl-mesa0 ships libEGL_mesa.so.0, and the libEGL.so.1 that chromium
+# actually dlopens comes from libegl1. Without these, ANGLE fails every EGL
+# display type and electron dies on SIGTRAP ("Trace/BPT trap") after
+# "Could not dlopen native EGL: libEGL.so.1". Electron dlopens them at runtime
+# so they are never declared .deb dependencies, exactly like libasound2t64.
+# libgl1 pulls libglx0, the dispatch half of libglx-mesa0.
+CMD apt-get install -y --no-install-recommends libegl1 libgl1 libgles2
+
+# Shared Electron/Chromium runtime, so a cloned jail installs an Electron .deb
+# with dpkg -i and no dependency resolution. Names checked against
+# releases/Debian13/var/lib/apt/lists/*trixie*Packages: gtk3, atspi and alsa are
+# the t64 variants in trixie and all Provides: their old names, so an unmodified
+# .deb is satisfied. libasound2t64 is not pulled in transitively -- Electron
+# dlopens it even when output goes to pulse.
+CMD apt-get install -y --no-install-recommends libgtk-3-0t64 libatspi2.0-0t64 libayatana-appindicator3-1 libasound2t64 libnotify4 libnss3 libxss1 libxtst6 libuuid1 libsecret-1-0 xdg-utils fonts-dejavu-core fonts-noto-color-emoji
+
+# dbus refuses to start without a machine-id
+CMD dbus-uuidgen > /etc/machine-id || true
+
+# uid must match the host: nullfs passes uids through unmapped, so a mismatch
+# makes the wayland socket and the mounted state unreadable. useradd(8) hits the
+# same /etc/.pwd.lock failure, so append directly.
+CMD grep -q '^${USER}:' /etc/passwd || echo '${USER}:x:${UID}:${UID}::/home/${USER}:/bin/bash' >> /etc/passwd
+CMD grep -q '^${USER}:' /etc/group || echo '${USER}:x:${UID}:' >> /etc/group
+CMD grep -q '^${USER}:' /etc/shadow || echo '${USER}:!:20000:0:99999:7:::' >> /etc/shadow
+CMD mkdir -p /home/${USER}
+CMD chown ${UID}:${UID} /home/${USER}
+CMD chmod 0755 /home/${USER}
+
+# chromium exits immediately if /tmp is not writable with the sticky bit
+CMD chmod 1777 /tmp
+
+CMD apt-get clean
+CMD dpkg --audit

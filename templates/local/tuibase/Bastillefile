@@ -1,0 +1,22 @@
+# Terminal-app jail baseline. Feeds `tuibase`, which jail-new clones.
+#   bastille template tuibase local/tuibase --arg UID=1001 --arg USER=acid
+#
+# Runs under devfs ruleset 4, so no /dev/dri and no /dev/shm. Lives on
+# jailprivbridge, and clone rewrites the epair but not the bridge, so clones
+# stay on the untrusted tier.
+
+ARG UID=1001
+ARG USER=acid
+
+# base ships no trust store, so TLS verification fails without it.
+PKG ca_root_nss
+
+# uid must match the host: nullfs passes uids through unmapped.
+CMD pw groupadd -n ${USER} -g ${UID} || true
+CMD pw useradd -n ${USER} -u ${UID} -g ${USER} -m -s /bin/sh || true
+
+# stops fortune(6) from prefixing every bastille cmd output
+CMD touch /home/${USER}/.hushlogin
+CMD sed -i '' 's|^[[:space:]]*fortune|#fortune|' /home/${USER}/.profile || true
+
+CMD chmod 1777 /tmp

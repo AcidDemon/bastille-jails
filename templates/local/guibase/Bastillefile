@@ -1,0 +1,58 @@
+# FreeBSD GUI jail baseline. Everything zen needed, found one crash at a time.
+# Applied to the golden jail `guibase`, which jail-new clones.
+#
+#   bastille template guibase local/guibase --arg UID=1001 --arg USER=acid
+#
+# The local/ prefix is required: template.sh resolves ${templatesdir}/${TEMPLATE}.
+#
+# Does NOT cover: devfs_ruleset (a jail param, set with bastille config), the
+# socket passthrough, or themes -- those are per-jail and per-session.
+
+ARG UID=1001
+ARG USER=acid
+
+# Deliberately does NOT include default/base. `bastille create` already applies
+# default/thin -> default/base, and re-running it re-copies resolv.conf using
+# the default arg HOST_RESOLV_CONF=/etc/resolv.conf -- the host's Tailscale one,
+# which pf blocks from the jail net. That breaks DNS in every jail it touches.
+
+# fontconfig and freetype2 arrive as dependencies but ship no typefaces, and
+# Gecko exits rather than falling back. zen died on this with fc-list = 0.
+PKG dejavu noto-basic
+
+# libglvnd is only the GL dispatch layer; without mesa-dri there is no driver
+# at all and the GPU process cannot initialise.
+PKG mesa-dri
+
+# ...and the converse, which cost a debugging round on the Debian side: the
+# driver is useless without the dispatch. libEGL.so.1, libGL.so.1 and
+# libGLESv2.so.2 all come from libglvnd, and nothing in the list above pulls it
+# (mesa-dri depends on mesa-libs, which does not). Chromium and Electron dlopen
+# libEGL.so.1 at runtime, so it is never a recorded dependency either -- they
+# just abort on SIGTRAP after "Could not dlopen native EGL". zen only works
+# because the zen-browser port depends on libglvnd in its own right.
+PKG libglvnd
+
+# cubeb dlopens libpulse at runtime, so it never appears in a package's
+# Shared Libs required and pkg will not pull it in. Without it audio silently
+# falls back to OSS, which needs /dev/dsp* that ruleset 20 excludes.
+PKG pulseaudio
+
+# dbus refuses to start without a machine-id; both paths get checked.
+CMD dbus-uuidgen > /etc/machine-id
+CMD mkdir -p /var/lib/dbus
+CMD cp /etc/machine-id /var/lib/dbus/machine-id
+
+# uid and gid must match the host: nullfs passes uids through unmapped, so a
+# mismatch makes the mounted profile and the wayland socket unreadable.
+# video (gid 44) is needed for /dev/dri.
+CMD pw groupadd -n ${USER} -g ${UID} || true
+CMD pw useradd -n ${USER} -u ${UID} -g ${USER} -G video -m -s /bin/sh || true
+
+# stops fortune(6) from prefixing every bastille cmd output
+CMD touch /home/${USER}/.hushlogin
+CMD sed -i '' 's|^[[:space:]]*fortune|#fortune|' /home/${USER}/.profile || true
+
+# browsers need /tmp writable with the sticky bit. spotify died on this after
+# an unrelated unmount revealed a 0755 root-owned /tmp underneath.
+CMD chmod 1777 /tmp

@@ -1,0 +1,39 @@
+#!/bin/sh
+# Stand-in for systemd-sysusers, which cannot lock /etc/.pwd.lock under
+# linuxulator. Same job by plain append, which needs no lock. Reads the same
+# *.conf the packages ship, so packages installed later are covered too.
+# "u name" wants a user plus group, "g name" a group.
+#
+# Installed over the diverted real binary, so every apt postinst calls this.
+set -u
+
+tmp=$(mktemp)
+awk '$1 == "u" || $1 == "g" { print $1, $2 }' \
+	/usr/lib/sysusers.d/*.conf \
+	/etc/sysusers.d/*.conf 2>/dev/null | sort -u > "$tmp"
+
+nid=800
+while read -r type name; do
+	[ -n "$name" ] || continue
+	case "$name" in -|*[!a-zA-Z0-9_-]*) continue ;; esac
+
+	if grep -q "^$name:" /etc/group; then
+		gid=$(awk -F: -v n="$name" '$1 == n { print $3 }' /etc/group)
+	else
+		while grep -q ":x:$nid:" /etc/group || grep -q ":x:$nid:" /etc/passwd; do
+			nid=$((nid + 1))
+		done
+		gid=$nid
+		echo "$name:x:$gid:" >> /etc/group
+	fi
+
+	if [ "$type" = u ] && ! grep -q "^$name:" /etc/passwd; then
+		echo "$name:x:$gid:$gid::/nonexistent:/usr/sbin/nologin" >> /etc/passwd
+		echo "$name:!:20000:0:99999:7:::" >> /etc/shadow
+	fi
+done < "$tmp"
+
+rm -f "$tmp"
+
+# never fail: a postinst that trusts this is better off continuing
+exit 0
