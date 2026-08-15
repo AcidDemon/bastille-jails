@@ -11,9 +11,8 @@ to be useful elsewhere are the traps at the bottom.
 
 ## What this replaces
 
-Adding a jail used to mean re-running the eleven phases of
-`~/bin/spotify-jail-setup.sh` with the names changed. Now a baseline jail is
-built once, frozen, and cloned.
+Adding a jail used to mean re-running a twenty-phase provisioning script with
+the names changed. Now a baseline jail is built once, frozen, and cloned.
 
     guibase   FreeBSD 15.1 thin, 172.16.0.10, devfs 20, jailnatbridge
     linbase   Debian 13 under linuxulator, 172.16.0.11, devfs 21, jailnatbridge
@@ -36,12 +35,32 @@ gets no GPU device and no shared segment with the browsers.
          config=home/acid/.config/vesktop
     doas sh ~/.jails/vesktop-setup.sh
 
+    doas jail-new -x ~/.jails/element.pf linbase element 172.16.0.50 \
+         config=home/acid/.config/Element
+    doas sh ~/.jails/element-setup.sh
+
     doas jail-new -n -x ~/.jails/weechat.pf tuibase weechat 172.16.1.50 \
          home=home/acid/.weechat
     doas sh ~/.jails/weechat-setup.sh
 
+    doas jail-new -n -x ~/.jails/feather.pf guibase feather 172.16.0.60 \
+         wallets=home/acid/.Monero config=home/acid/.config/feather
+    doas sh ~/.jails/feather-setup.sh
+
 `baseline-setup.sh` takes `linux`, `freebsd`, `tui` or `all`. Each setup script
 ends by printing the one `doas.conf` line it will not write itself.
+
+feather is the only jail on ruleset 22, ruleset 20 plus `video*` and `cuse` for
+the QR scanner, and the only one whose pf file lets nothing but tor out. Its
+setup script writes that ruleset and switches the jail to it. See
+`feather-design.md` for why the boundary sits where it does.
+
+spotify needs `-x` for tcp 4070, its legacy access point, on top of the
+defaults. Its theme is a separate step, because spicetify ships with none
+selected and applying nothing leaves the client looking stock:
+
+    doas sh ~/.jails/spotify-setup.sh
+    doas sh ~/.jails/spotify-theme.sh
 
 `-n` drops the default `tcp { 80, 443 }` and `udp 443` rules, leaving only what
 `-x` supplies. weechat wants neither port 80 nor any UDP.
@@ -57,9 +76,15 @@ ends by printing the one `doas.conf` line it will not write itself.
     bridge-private-test.sh                   proves bridge port isolation works
     bridge-private-persist.sh                makes it survive a jail restart
     launcher-consistency.sh                  normalises paths and desktop entries
-    spotify-jail  vesktop-jail  weechat-jail launchers
-    vesktop.pf  weechat.pf                   per-app pf extras
-    vesktop-setup.sh  weechat-setup.sh       per-app install
+    debian-locale.sh                         generates en_US.UTF-8 in Debian jails
+    <app>-jail                               launchers, root-owned once installed
+    <app>.pf                                 per-app pf extras
+    <app>-setup.sh                           per-app install
+    spotify-theme.sh                         catppuccin for spicetify
+    feather-design.md                        why the wallet jail looks like it does
+
+Apps covered by a setup script: spotify, vesktop, element, weechat. zen and
+zenburner predate the tooling and have launchers only.
 
 `baseline-setup.sh` copies the templates to
 `/usr/local/bastille/templates/local/` before applying them, so this directory

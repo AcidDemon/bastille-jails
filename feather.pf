@@ -1,0 +1,8 @@
+# Extra pf rules for the feather jail, spliced in by jail-new -x. The jail is
+# created with -n, so these are the only rules it gets.
+#
+# None of them are feather's. tor is the only thing in the jail allowed out:
+# 9001 is the usual ORPort, 443 the port guards use to get through restrictive
+# networks, 9030 the DirPort. The wallet reaches the network only through the
+# SOCKS port on the jail's own loopback, and loopback needs no rule.
+pass in quick on $jail_if proto tcp from $j_feather to any port { 443, 9001, 9030 } keep state

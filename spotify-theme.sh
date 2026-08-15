@@ -4,8 +4,8 @@
 #
 #   doas sh ~/.jails/spotify-theme.sh
 #
-# spotify-jail-setup.sh installed the spicetify CLI and ran `backup apply`, but
-# never selected a theme, so the client renders stock.
+# spotify-setup.sh installs the spicetify CLI and runs `backup apply`, but
+# selects no theme, so the client renders stock until this runs.
 
 set -eu
 
@@ -29,7 +29,7 @@ injail() { jexec -l -u "$JUSER" "$JAIL" "$@"; }
 
 [ "$(id -u)" = 0 ] || die "must run as root"
 jls -j "$JAIL" jid >/dev/null 2>&1 || bastille start "$JAIL"
-[ -x "$ROOT$SPICE" ] || die "no spicetify in $JAIL, rerun ~/bin/spotify-jail-setup.sh"
+[ -x "$ROOT$SPICE" ] || die "no spicetify in $JAIL, run ~/.jails/spotify-setup.sh first"
 
 say "1/3  fetch $THEME"
 if [ -s "$ROOT$TDIR/user.css" ]; then
