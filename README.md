@@ -47,6 +47,13 @@ gets no GPU device and no shared segment with the browsers.
          wallets=home/acid/.Monero config=home/acid/.config/feather
     doas sh ~/.jails/feather-setup.sh
 
+    doas sh ~/.jails/sniproxy-setup.sh
+    doas jail-new -n tuibase claude 172.16.1.70 home=home/acid
+    doas sh ~/.jails/claude-setup.sh
+
+    doas jail-new -n tuibase codex 172.16.1.60 home=home/acid
+    doas sh ~/.jails/codex-setup.sh
+
 `baseline-setup.sh` takes `linux`, `freebsd`, `tui` or `all`. Each setup script
 ends by printing the one `doas.conf` line it will not write itself.
 
@@ -81,10 +88,15 @@ selected and applying nothing leaves the client looking stock:
     <app>.pf                                 per-app pf extras
     <app>-setup.sh                           per-app install
     spotify-theme.sh                         catppuccin for spicetify
+    sniproxy.conf                            egress allowlist, shared by agent jails
+    sniproxy-setup.sh                        installs it and proves it filters
+    claude-marketplace-https.py              turns github plugin sources into https URLs
+    claude-git-trace.sh                      shims git in the jail to unredact its stderr
+    codex-setup.sh                           the same for codex, minus linuxulator
     feather-design.md                        why the wallet jail looks like it does
 
-Apps covered by a setup script: spotify, vesktop, element, weechat. zen and
-zenburner predate the tooling and have launchers only.
+Apps covered by a setup script: spotify, vesktop, element, weechat, claude. zen
+and zenburner predate the tooling and have launchers only.
 
 `baseline-setup.sh` copies the templates to
 `/usr/local/bastille/templates/local/` before applying them, so this directory
@@ -131,6 +143,41 @@ still passed.
 jails. It skips the baselines on purpose, because `clone.sh` rewrites `addm` but
 has no sed for `private e0a_<name>`, so a clone would inherit a line naming an
 interface it does not have. `jail-new` adds the line per jail instead.
+
+## The agent jail
+
+`claude` runs Claude Code, and it is the only jail whose workload is the repos
+themselves. It gets `~/Workspace` and `~/.dotfiles` read-write, `~/.jails`,
+`/usr/ports` and `/usr/src` read-only, all at the host path, because
+`~/.claude/projects` keys its session history by encoded absolute path.
+
+It gets no ssh key, no gh token and no card, so commits land unsigned and push
+fails. Signing and pushing stay on the host. Egress is the same story: no direct
+443 at all, only a pf `rdr` to sniproxy, which allows a list of names and refuses
+everything else. The refusal shows up in the jail as a TLS handshake failure and
+in `/var/log/sniproxy.log` as `-> NONE [name]`.
+
+What the jail does not close: those repos are writable, so `.git/hooks` and
+`.git/config` are under its control, and a planted pre-push hook or
+`core.fsmonitor` runs on the host at the next git command. `exports.sh` pins
+both through `GIT_CONFIG_KEY_*`, which ranks with `git -c` and beats repo
+config. `~/.jails` is read-only for the same class of reason, since `jail-new`
+runs as root through doas. `~/.dotfiles` is read-write by choice, which leaves
+the chezmoi `run_after_*` scripts reachable, so `chezmoi diff` before an apply
+is the compensating control.
+
+codex gets its own jail rather than sharing this one. The jails would be
+equivalent at the file level, but an OAuth refresh token is remotely usable and
+neither vendor's agent should be able to read the other's. The same split runs
+through the egress: sniproxy listens on `172.16.1.1` for claude and on the alias
+`172.16.1.2` for codex, with a table each, so codex cannot reach Anthropic
+endpoints and claude cannot reach OpenAI ones. `sniproxy-setup.sh` asserts that
+both directions fail before it exits.
+
+codex needs none of the linuxulator work. It is a native FreeBSD ELF, so no
+`/compat` mounts and no `enforce_statfs` change, though it does get the same
+`/dev/ptmx` check, since an agent that spawns shell commands hits the same wall
+claude did.
 
 ## What a baseline may not contain
 
@@ -187,3 +234,42 @@ processes are orphaned. It presents as a clean `exit=0`.
 `jexec -l` keeps HOME, SHELL, TERM and USER, drops everything else including
 LANG, and sets `PATH=/bin:/usr/bin`. Terminal apps need LANG passed and an
 absolute path to anything under `/usr/local`.
+
+Claude Code builds `git@github.com:owner/repo` from a plugin marketplace whose
+source is `github`, so installing or refreshing one needs an ssh key. A jail
+without one reports `ERR_STREAM_PREMATURE_CLOSE` and redacts git's stderr, which
+reads like a network fault and is not: the same clone by hand over https
+succeeds. `CLAUDE_CODE_PLUGIN_PREFER_HTTPS=1` in the launcher aims at the cause;
+`CLAUDE_CODE_PLUGIN_KEEP_MARKETPLACE_ON_FAILURE=1` stops it deleting the
+evidence. `claude-git-trace.sh` shims git in the jail when the redacted error is
+all there is to go on.
+
+A sniproxy table entry is a pattern and a target, and the target `*` means the
+name the client asked for, on the listener's port. A pattern with no target
+parses, starts, and listens, so every socket check passes while the log records
+`-> NONE` for every connection and nothing reaches anywhere.
+
+`/etc/pf.conf` blocks RFC1918 from the untrusted tier with a `quick` rule, and
+`172.16.1.1` is inside that range. pf translates before it filters, so a `rdr` to
+the bridge address only survives if its `pass` sits above that block. `jail-new`
+splices below it, which is why `claude` has no `-x` file and `claude-setup.sh`
+places both rules itself.
+
+`/compat/linux` does not exist until `linux_base-rl9` is installed, and `jail(8)`
+reads `mount.fstab` before the jail is created. The four linuxulator lines
+therefore go in after the first `pkg` run, never at create time. Their
+`enforce_statfs` has to be 1: bastille generates 2, which empties
+`/compat/linux/proc/self/mounts` and breaks glibc `getmntent`.
+
+A FreeBSD jail running Linux binaries needs all five mounts `/etc/rc.d/linux`
+makes, `devfs` at `/compat/linux/dev` included, and `devfs` has to come first in
+fstab because `dev/fd` and `dev/shm` sit inside it. `kern_alternate_path` tries
+`/compat/linux/<path>` and falls back to the real one, which covers opening
+`/dev/null` and makes the mount look redundant. It is not: without it the Linux
+side has no `/dev/ptmx`, so anything allocating a pty fails. That presents as a
+subprocess which never execs, with no error from the program that tried.
+
+That devfs needs ruleset 23, not the stock 4. Ruleset 4 hides `shm`, so the
+mountpoint for the shm tmpfs disappears underneath the devfs and the jail refuses
+to start with `No such file or directory`. Ruleset 23 is 4 plus `shm` unhide,
+which is the same reason ruleset 21 exists for the Debian baseline.

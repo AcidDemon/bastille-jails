@@ -1,0 +1,13 @@
+#!/bin/sh
+# Codex in its jail. run as root: doas codex-jail
+set -eu
+
+JAIL=codex
+
+jls -j "$JAIL" jid >/dev/null 2>&1 || bastille start "$JAIL" >/dev/null
+
+# jexec -l sets PATH=/bin:/usr/bin and drops LANG.
+exec jexec -l -u acid "$JAIL" env \
+	LANG=en_US.UTF-8 \
+	PATH=/usr/local/bin:/usr/local/sbin:/bin:/usr/bin:/sbin:/usr/sbin \
+	/usr/local/bin/codex "$@"

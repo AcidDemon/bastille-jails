@@ -1,0 +1,15 @@
+#!/bin/sh
+# Claude Code in its jail. run as root: doas claude-jail
+set -eu
+
+JAIL=claude
+
+jls -j "$JAIL" jid >/dev/null 2>&1 || bastille start "$JAIL" >/dev/null
+
+# jexec -l sets PATH=/bin:/usr/bin and drops LANG.
+exec jexec -l -u acid "$JAIL" env \
+	LANG=en_US.UTF-8 \
+	PATH=/usr/local/bin:/usr/local/sbin:/bin:/usr/bin:/sbin:/usr/sbin \
+	CLAUDE_CODE_PLUGIN_PREFER_HTTPS=1 \
+	CLAUDE_CODE_PLUGIN_GIT_TIMEOUT_MS=120000 \
+	/usr/local/bin/claude "$@"
