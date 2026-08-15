@@ -54,6 +54,10 @@ gets no GPU device and no shared segment with the browsers.
     doas jail-new -n tuibase codex 172.16.1.60 home=home/acid
     doas sh ~/.jails/codex-setup.sh
 
+    doas sh ~/.jails/sniproxy-jail.sh element 172.16.0.50 172.16.0.2
+    doas sh ~/.jails/sniproxy-jail.sh vesktop 172.16.0.40 172.16.0.3
+    doas sh ~/.jails/sniproxy-jail.sh spotify 172.16.0.30 172.16.0.4
+
 `baseline-setup.sh` takes `linux`, `freebsd`, `tui` or `all`. Each setup script
 ends by printing the one `doas.conf` line it will not write itself.
 
@@ -93,6 +97,7 @@ selected and applying nothing leaves the client looking stock:
     claude-marketplace-https.py              turns github plugin sources into https URLs
     claude-git-trace.sh                      shims git in the jail to unredact its stderr
     codex-setup.sh                           the same for codex, minus linuxulator
+    sniproxy-jail.sh                         routes an existing jail's 80/443 through the proxy
     feather-design.md                        why the wallet jail looks like it does
 
 Apps covered by a setup script: spotify, vesktop, element, weechat, claude. zen
@@ -178,6 +183,40 @@ codex needs none of the linuxulator work. It is a native FreeBSD ELF, so no
 `/compat` mounts and no `enforce_statfs` change, though it does get the same
 `/dev/ptmx` check, since an agent that spawns shell commands hits the same wall
 claude did.
+
+## Proxied jails
+
+sniproxy reads the TLS ClientHello, matches the server name against a table and
+connects to that name itself. A forged SNI therefore reaches only the host it
+names. Each jail gets its own address, so no two share a table:
+
+    172.16.1.1  claude      172.16.0.2  element
+    172.16.1.2  codex       172.16.0.3  vesktop
+                            172.16.0.4  spotify
+
+Everything but `172.16.1.1` is a `/32` alias, created by `sniproxy-setup.sh` from
+the `listen` lines in the config, because sniproxy refuses to start if an address
+it wants is not on an interface.
+
+`sniproxy-jail.sh` does the pf side for a jail that already exists. It inserts the
+`rdr`, replaces the jail's direct `80, 443` pass with one to the proxy, and
+**removes its `udp 443` rule**. That removal is the point rather than a side
+effect: Chromium prefers QUIC, and a jail left with UDP 443 skips the proxy
+entirely and the whole exercise achieves nothing. WebRTC rules on 3478, 5349 and
+the high range are untouched, and sniproxy cannot see that traffic at all, so
+voice stays exactly as open as it was.
+
+element, vesktop and spotify start on catch-all tables. Nothing is blocked by
+name, but non-TLS traffic on 443 is already dropped and every hostname is logged,
+which is how the real list gets written:
+
+    awk '{print $8}' /var/log/sniproxy.log | sort -u
+
+Three jails are deliberately not proxied. tor negotiates TLS with randomised SNI,
+so `feather` cannot be matched and would break. `zen` and `zenburner` are general
+browsers, where an allowlist for the whole web is not a control. `weechat` is
+half-eligible: 6697 and 7000 are TLS, but 6667 is plaintext IRC and sniproxy has
+no parser for it.
 
 ## What a baseline may not contain
 
